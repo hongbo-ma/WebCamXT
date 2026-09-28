@@ -1,0 +1,47 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+.section-header {
+  font-weight: bold;
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.param-box {
+  border: 1px solid #d0d0d0;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.toolbar {
+  background: #f0f0f0;
+  border-bottom: 1px solid #d0d0d0;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 24px;
+  background: #ccc;
+  margin: 0 6px;
+}
+
+.plot-container {
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  height: 100%;
+}
+
+.param-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
