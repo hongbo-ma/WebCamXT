@@ -38,7 +38,7 @@
   <h1>WebCamXT<br>TCAD 器件仿真分析平台</h1>
   <div class="sub">使 用 手 册</div>
   <div class="meta">
-    版本：v1.1（含系统截图 · 2026-09）<br>
+    版本：v1.2（含系统截图 · 2026-10）<br>
     访问地址：http://10.102.35.1:8080<br>
     适用对象：注册用户 / 管理员
   </div>
@@ -94,8 +94,16 @@
 <table>
   <tr><th>角色</th><th>权限</th></tr>
   <tr><td>普通用户（user）</td><td>上传/管理自己的数据文件，进行分析与仿真</td></tr>
-  <tr><td>管理员（admin）</td><td>普通用户全部权限 + 生成/撤销邀请码、管理所有用户</td></tr>
+  <tr><td>管理员（admin）</td><td>普通用户全部权限 + 生成/撤销邀请码、管理所有用户（角色/账号有效期）、查看操作日志、查看并分析所有用户的文件</td></tr>
 </table>
+<h3>2.5 账号有效期</h3>
+<p>为保证账号资源可控，系统对普通用户账号实行<b>有效期管理</b>：</p>
+<ul>
+  <li><b>新注册账号默认可使用 30 天</b>（自注册之时起算）；</li>
+  <li>账号到期后，登录和使用会被拒绝，页面会提示「<b>账号已过期，请联系管理员续期</b>」；</li>
+  <li>管理员可在「用户管理」页为任意账号<b>续期</b>（自定义天数）或设为<b>永久有效</b>；账号过期期间数据<b>不会丢失</b>，续期后即可恢复使用；</li>
+  <li>管理员账号不受有效期限制。</li>
+</ul>
 
 <h2>3. 数据文件格式要求</h2>
 <p>系统通过 Excel 文件导入测试数据，上传前请确认文件满足以下要求，否则会解析失败：</p>
@@ -144,7 +152,7 @@
 <ol>
   <li>从下拉框依次选择 <b>W(um)</b>、<b>L(um)</b>；</li>
   <li>选择曲线类型 <b>Type</b>：output（输出特性）或 transfer（转移特性）；</li>
-  <li>选择固定电压 <b>Vgs</b>（output 时）或对应偏置点（transfer 时）；</li>
+  <li>选择固定电压：Type 为 output 时标签为 <b>Vgs</b>（固定栅压，扫描漏压）；Type 为 transfer 时标签自动切换为 <b>Vds</b>（固定漏压，扫描栅压），下拉选项同步切换为数据中可用的漏压点；</li>
   <li>点击工具栏「Plot」绘制。</li>
 </ol>
 
@@ -179,8 +187,8 @@
   <tr><th style="width:120px">参数</th><th>含义</th><th style="width:110px">默认值</th></tr>
   <tr><td>T_tail (K)</td><td>尾态特征温度</td><td>348.17</td></tr>
   <tr><td>T_deep (K)</td><td>深能级特征温度</td><td>580.28</td></tr>
-  <tr><td>g_tail</td><td>尾态态密度</td><td>5.1e18</td></tr>
-  <tr><td>g_deep</td><td>深能级态密度</td><td>2.463e18</td></tr>
+  <tr><td>g_tail</td><td>尾态态密度（输入框以指数形式显示与输入，如 5.1e18）</td><td>5.1e18</td></tr>
+  <tr><td>g_deep</td><td>深能级态密度（输入框以指数形式显示与输入，如 2.463e18）</td><td>2.463e18</td></tr>
   <tr><td>T (K)</td><td>测试温度（不可与 T_tail/T_deep 相等）</td><td>300</td></tr>
   <tr><td>mu_free</td><td>自由载流子迁移率（cm²/V·s）</td><td>0.8</td></tr>
   <tr><td>Vfb (V)</td><td>平带电压</td><td>-0.8</td></tr>
@@ -215,12 +223,39 @@
 <ul>
   <li>查看所有用户及其文件数量；</li>
   <li>调整角色（user ↔ admin）；</li>
+  <li><b>账号有效期管理</b>：列表中 Expiry 列显示每个账号的状态标签 ——
+    <b>Active</b>（正常）/ <b>Expiring</b>（7 天内到期）/ <b>Expired</b>（已过期）/ <b>Permanent</b>（永久）；
+  </li>
+  <li><b>续期（Renew）</b>：点击用户行的「Renew」打开续期弹窗——
+    填写续期天数（默认 30 天，未到期的账号在原到期时间上顺延，已过期的从当下起算），或勾选「Permanent」设为永久有效；弹窗会实时预览新的到期时间；</li>
   <li>删除用户（会同时删除其全部数据文件，且不能删除自己）。</li>
 </ul>
 <figure>
   <img src="shots/08-admin-users.png" alt="用户管理">
-  <figcaption>图 7-2 用户管理页面</figcaption>
+  <figcaption>图 7-2 用户管理页面（v1.2 起新增 Expiry 状态列与 Renew 续期按钮）</figcaption>
 </figure>
+
+<h3>7.3 查看与分析用户文件</h3>
+<p>管理员进入「Files」页面时，显示的是<b>所有用户的文件</b>（标题为 All Files (Admin)），并增加 <b>Owner</b> 属主列（管理员自己的文件带有「me」标记）：</p>
+<ul>
+  <li>点击任意文件的「Analyze」即可<b>直接进入分析页</b>，对该文件进行绘图、参数提取与仿真，操作方式与普通用户完全一致；</li>
+  <li>管理员的操作<b>不会改变文件属主</b>，文件仍然属于原用户；</li>
+  <li>管理员代为分析的操作会记入操作日志（见 7.4），同时记录操作者与文件属主，便于追溯。</li>
+</ul>
+
+<h3>7.4 操作日志（Logs）</h3>
+<p>系统自动记录用户对文件的关键操作，管理员可在「Logs」页面审计查询：</p>
+<table>
+  <tr><th style="width:130px">日志字段</th><th>说明</th></tr>
+  <tr><td>Time / User</td><td>操作时间与操作人</td></tr>
+  <tr><td>Action</td><td>操作类型：Upload（上传）/ Delete（删除）/ Plot（绘图）/ Simulation（仿真）/ Auto Fitting（自动拟合）/ Renew（管理员续期）</td></tr>
+  <tr><td>File</td><td>涉及的文件名；管理员操作他人文件时额外标注属主（owner）</td></tr>
+  <tr><td>Detail</td><td>操作参数摘要，如 type=output w=100 l=10 v=5.0、仿真误差率等</td></tr>
+</table>
+<ul>
+  <li>支持按<b>用户</b>、按<b>操作类型</b>过滤，分页浏览；</li>
+  <li>用户或文件被删除后，历史日志仍保留（用户名与文件名为快照存储）。</li>
+</ul>
 
 <h2>8. 常见问题（FAQ）</h2>
 <table>
@@ -229,6 +264,7 @@
   <tr><td>上传提示「Invalid file type」</td><td>只支持 .xls / .xlsx 格式</td></tr>
   <tr><td>上传提示「文件解析失败」</td><td>检查：数据是否在 Sheet1；是否包含 W/L/TO/GateV/DrainV/DrainI 六列且列名无误</td></tr>
   <tr><td>提示「Width/Length value not found」</td><td>所选 W/L 组合在数据文件中不存在，请在右侧下拉框中选择解析出的组合</td></tr>
+  <tr><td>提示「账号已过期，请联系管理员续期」</td><td>账号有效期（默认注册后 30 天）已到期，请联系管理员在「用户管理」中续期或设为永久；数据不会丢失，续期后即可恢复使用</td></tr>
   <tr><td>页面突然跳回登录页</td><td>登录凭证（24 小时）过期，重新登录即可，数据不会丢失</td></tr>
   <tr><td>提示「无权访问此文件」</td><td>每个用户只能访问自己上传的文件</td></tr>
   <tr><td>仿真报 500 错误</td><td>记录操作步骤与参数，通过第 9 节方式反馈给管理员</td></tr>
