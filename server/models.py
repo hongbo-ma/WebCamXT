@@ -17,6 +17,15 @@ class User(db.Model):
     email = db.Column(db.String(120), nullable=True)
     role = db.Column(db.String(20), default='user', nullable=False)
     created_at = db.Column(db.DateTime, default=utcnow)
+    # 账号有效期; NULL = 永久 (管理员账号默认永久)
+    expires_at = db.Column(db.DateTime, nullable=True)
+
+    def is_expired(self):
+        return (
+            self.expires_at is not None
+            and self.role != 'admin'
+            and self.expires_at < utcnow()
+        )
 
     def to_dict(self):
         return {
@@ -25,6 +34,8 @@ class User(db.Model):
             'email': self.email,
             'role': self.role,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'is_expired': self.is_expired(),
         }
 
 
@@ -68,16 +79,63 @@ class FileRecord(db.Model):
 
     user = db.relationship('User', backref='files')
 
-    def to_dict(self, include_combinations=True):
+    def to_dict(self, include_combinations=True, owner_username=None):
         import json
         data = {
             'id': self.id,
             'original_filename': self.original_filename,
             'file_size': self.file_size,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
+            'user_id': self.user_id,
+            'owner_username': owner_username,
         }
         if include_combinations and self.combinations_json:
             data['combinations'] = json.loads(self.combinations_json)
         else:
             data['combinations'] = None
         return data
+
+
+class OperationLog(db.Model):
+    """用户操作审计日志: 记录 谁(user) 对 哪个文件(file) 做了 什么操作(action)"""
+    __tablename__ = 'operation_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    username = db.Column(db.String(80), nullable=False)          # 快照, 用户删除后仍可读
+    file_id = db.Column(db.Integer, nullable=True, index=True)
+    file_name = db.Column(db.String(255), nullable=True)          # 快照, 文件删除后仍可读
+    file_owner_name = db.Column(db.String(80), nullable=True)     # 快照: 文件属主 (管理员代查时与操作者不同)
+    action = db.Column(db.String(32), nullable=False, index=True)  # upload/delete/plot/simulation/auto_fitting/renew
+    detail = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': self.username,
+            'file_id': self.file_id,
+            'file_name': self.file_name,
+            'file_owner_name': self.file_owner_name,
+            'action': self.action,
+            'detail': self.detail,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+def log_operation(user, action, file_record=None, detail=None):
+    """记录一条操作日志并立即提交 (独立事务, 不影响调用方业务事务)"""
+    user = user if isinstance(user, User) else User.query.get(int(user))
+    if user is None:
+        return
+    entry = OperationLog(
+        user_id=user.id,
+        username=user.username,
+        file_id=file_record.id if file_record else None,
+        file_name=file_record.original_filename if file_record else None,
+        file_owner_name=file_record.user.username if (file_record and file_record.user) else None,
+        action=action,
+        detail=detail,
+    )
+    db.session.add(entry)
+    db.session.commit()

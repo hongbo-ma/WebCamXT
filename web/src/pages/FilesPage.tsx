@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Space, Upload, App, Popconfirm, Typography, Card } from 'antd';
+import { Table, Button, Space, Upload, App, Popconfirm, Typography, Card, Tag } from 'antd';
 import { UploadOutlined, DeleteOutlined, LineChartOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { filesApi } from '../api/files';
+import { useAuthStore } from '../stores/authStore';
 import type { FileRecord } from '../types';
 
 const { Title } = Typography;
@@ -11,6 +12,8 @@ const { Title } = Typography;
 export function FilesPage() {
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const currentUser = useAuthStore((s) => s.user);
+  const isAdmin = currentUser?.role === 'admin';
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -67,6 +70,18 @@ export function FilesPage() {
       dataIndex: 'original_filename',
       key: 'original_filename',
     },
+    ...(isAdmin
+      ? [{
+          title: 'Owner',
+          dataIndex: 'owner_username',
+          key: 'owner_username',
+          width: 130,
+          render: (owner: string | null, r: FileRecord) =>
+            owner === currentUser?.username
+              ? <Tag color="blue">{owner} (me)</Tag>
+              : <span>{owner || `user #${r.user_id}`}</span>,
+        } as ColumnsType<FileRecord>[number]]
+      : []),
     {
       title: 'Size',
       dataIndex: 'file_size',
@@ -107,7 +122,7 @@ export function FilesPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <Title level={4} style={{ marginBottom: 16 }}>My Files</Title>
+      <Title level={4} style={{ marginBottom: 16 }}>{isAdmin ? 'All Files (Admin)' : 'My Files'}</Title>
       <Card variant="outlined" style={{ border: '1px solid #d0d0d0' }}>
         <Space style={{ marginBottom: 16 }}>
           <Upload

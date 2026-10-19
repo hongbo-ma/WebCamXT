@@ -1,5 +1,5 @@
 import { Layout as AntLayout, Menu, Button, Dropdown, Space } from 'antd';
-import { UserOutlined, LogoutOutlined, FileOutlined, DownOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, FileOutlined, DownOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 
@@ -23,6 +23,7 @@ export function Layout() {
     menuItems.push(
       { key: '/admin/invites', label: 'Invites', icon: <UserOutlined /> },
       { key: '/admin/users', label: 'Users', icon: <UserOutlined /> },
+      { key: '/admin/logs', label: 'Logs', icon: <FileSearchOutlined /> },
     );
   }
 

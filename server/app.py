@@ -14,14 +14,15 @@ from datetime import timedelta
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, create_access_token
+from flask_jwt_extended import JWTManager, get_jwt_identity, create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import numpy as np
 
 from config import Config
-from models import db, User, InviteCode, FileRecord, utcnow
-from auth import handle_error, admin_required, get_current_user, get_file_with_ownership, generate_invite_code
+from models import db, User, InviteCode, FileRecord, OperationLog, utcnow, log_operation
+from auth import (handle_error, admin_required, active_required, get_current_user,
+                  get_file_with_ownership, generate_invite_code)
 from service_factory import locked_service, invalidate, invalidate_user, set_cached_service
 from compute_service import ComputeService
 
@@ -57,6 +58,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _migrate_sqlite(app)
 
     _register_auth_routes(app)
     _register_admin_routes(app)
@@ -64,6 +66,18 @@ def create_app():
     _register_analysis_routes(app)
     _register_error_handlers(app)
     return app
+
+
+def _migrate_sqlite(app):
+    """轻量迁移: SQLite 已有表新增列 (db.create_all 不会为已有表加列)。
+    存量用户 expires_at 保持 NULL = 永久有效, 避免升级即锁号。"""
+    from sqlalchemy import text
+    with db.engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text('PRAGMA table_info(users)'))]
+        if 'expires_at' not in cols:
+            conn.execute(text('ALTER TABLE users ADD COLUMN expires_at DATETIME'))
+            conn.commit()
+            app.logger.info('migrated: users.expires_at added')
 
 
 def allowed_file(filename):
@@ -294,6 +308,7 @@ def _register_auth_routes(app):
             password_hash=generate_password_hash(data['password']),
             email=data.get('email'),
             role='user',
+            expires_at=utcnow() + timedelta(days=Config.DEFAULT_USER_EXPIRE_DAYS),
         )
         db.session.add(user)
         db.session.flush()
@@ -319,12 +334,14 @@ def _register_auth_routes(app):
         user = User.query.filter_by(username=username).first()
         if not user or not check_password_hash(user.password_hash, password):
             return handle_error('用户名或密码错误', 401)
+        if user.is_expired():
+            return handle_error('账号已过期, 请联系管理员续期 (ACCOUNT_EXPIRED)', 403)
 
         token = create_access_token(identity=str(user.id))
         return jsonify({'token': token, 'user': user.to_dict()})
 
     @app.route('/api/auth/me', methods=['GET'])
-    @jwt_required()
+    @active_required
     def me():
         user = get_current_user()
         if not user:
@@ -409,31 +426,92 @@ def _register_admin_routes(app):
     @admin_required
     def update_user_role(user_id):
         data = request.get_json()
-        if not data or 'role' not in data:
-            return handle_error('Missing field: role')
-        if data['role'] not in ('admin', 'user'):
-            return handle_error('role 必须是 admin 或 user')
+        if not data:
+            return handle_error('Missing JSON data')
 
         user = User.query.get(user_id)
         if not user:
             return handle_error('用户不存在', 404)
 
-        user.role = data['role']
+        # 角色调整
+        if 'role' in data:
+            if data['role'] not in ('admin', 'user'):
+                return handle_error('role 必须是 admin 或 user')
+            user.role = data['role']
+
+        # 有效期管理: permanent=true 设为永久; extend_days=N 在现有基础上顺延 N 天
+        renewed = False
+        if data.get('permanent'):
+            user.expires_at = None
+            renewed = True
+        elif 'extend_days' in data:
+            try:
+                days = int(data['extend_days'])
+            except (TypeError, ValueError):
+                return handle_error('extend_days 必须是整数')
+            if days <= 0:
+                return handle_error('extend_days 必须大于 0')
+            base = user.expires_at if (user.expires_at and user.expires_at > utcnow()) else utcnow()
+            user.expires_at = base + timedelta(days=days)
+            renewed = True
+
         db.session.commit()
+        if renewed:
+            operator = get_current_user()
+            log_operation(operator, 'renew', detail=(
+                f"renewed user '{user.username}'"
+                + (' permanently' if user.expires_at is None else f" to {user.expires_at.isoformat()}")
+            ))
         return jsonify({'user': user.to_dict()})
+
+    @app.route('/api/admin/logs', methods=['GET'])
+    @admin_required
+    def list_logs():
+        """操作日志: 分页 + 按 用户/文件/动作 过滤"""
+        try:
+            page = max(int(request.args.get('page', 1)), 1)
+            page_size = min(max(int(request.args.get('page_size', 20)), 1), 100)
+        except ValueError:
+            return handle_error('page/page_size 必须是整数')
+
+        query = OperationLog.query
+        user_id = request.args.get('user_id')
+        file_id = request.args.get('file_id')
+        action = request.args.get('action')
+        if user_id:
+            query = query.filter_by(user_id=int(user_id))
+        if file_id:
+            query = query.filter_by(file_id=int(file_id))
+        if action:
+            query = query.filter_by(action=action)
+
+        total = query.count()
+        logs = (query.order_by(OperationLog.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size).all())
+        return jsonify({'logs': [log.to_dict() for log in logs], 'total': total})
 
 
 def _register_file_routes(app):
 
     @app.route('/api/files', methods=['GET'])
-    @jwt_required()
+    @active_required
     def list_files():
-        user_id = int(get_jwt_identity())
-        files = FileRecord.query.filter_by(user_id=user_id).order_by(FileRecord.uploaded_at.desc()).all()
-        return jsonify({'files': [f.to_dict(include_combinations=False) for f in files]})
+        user = get_current_user()
+        if user.role == 'admin':
+            # 管理员: 返回所有用户的文件 (含属主), 用于审计与代为分析
+            records = FileRecord.query.order_by(FileRecord.uploaded_at.desc()).all()
+            files = [f.to_dict(include_combinations=False,
+                               owner_username=f.user.username if f.user else None)
+                     for f in records]
+        else:
+            records = FileRecord.query.filter_by(user_id=user.id)\
+                .order_by(FileRecord.uploaded_at.desc()).all()
+            files = [f.to_dict(include_combinations=False) for f in records]
+        return jsonify({'files': files})
 
     @app.route('/api/upload', methods=['POST'])
-    @jwt_required()
+    @active_required
     def upload_file():
         user_id = int(get_jwt_identity())
 
@@ -486,35 +564,41 @@ def _register_file_routes(app):
             return handle_error('文件解析失败', 400, str(e))
 
         db.session.commit()
+        log_operation(get_current_user(), 'upload', record,
+                      detail=f'{record.original_filename} ({record.file_size} B)')
         return jsonify({'file_id': record.id, 'combinations': combinations})
 
     @app.route('/api/files/<int:file_id>', methods=['GET'])
-    @jwt_required()
+    @active_required
     def get_file(file_id):
         record, error = get_file_with_ownership(file_id)
         if error:
             return error
-        return jsonify(record.to_dict(include_combinations=True))
+        owner = record.user.username if record.user else None
+        return jsonify(record.to_dict(include_combinations=True, owner_username=owner))
 
     @app.route('/api/files/<int:file_id>', methods=['DELETE'])
-    @jwt_required()
+    @active_required
     def delete_file(file_id):
         record, error = get_file_with_ownership(file_id)
         if error:
             return error
 
+        fname = record.original_filename
         invalidate(record.id)
         if os.path.exists(record.stored_path):
             os.remove(record.stored_path)
         db.session.delete(record)
         db.session.commit()
+        log_operation(get_current_user(), 'delete', None,
+                      detail=f'{fname} (file #{file_id})')
         return jsonify({'success': True})
 
 
 def _register_analysis_routes(app):
 
     @app.route('/api/plot-data', methods=['POST'])
-    @jwt_required()
+    @active_required
     def get_plot_data():
         data = request.get_json()
         if not data:
@@ -555,6 +639,8 @@ def _register_analysis_routes(app):
                 else:
                     x, y = service.get_transfer_data(w, l, 1, v_value)
 
+                log_operation(get_current_user(), 'plot', record,
+                              detail=f'type={curve_type} w={w} l={l} v={v_value}')
                 return jsonify({
                     'x': x.tolist() if hasattr(x, 'tolist') else list(x),
                     'y': y.tolist() if hasattr(y, 'tolist') else list(y)
@@ -565,7 +651,7 @@ def _register_analysis_routes(app):
             return handle_error('Internal server error', 500, str(e))
 
     @app.route('/api/auto_fitting', methods=['POST'])
-    @jwt_required()
+    @active_required
     def auto_fitting():
         data = request.get_json()
         if not data:
@@ -604,6 +690,8 @@ def _register_analysis_routes(app):
 
                 U_FE_1, U_FE_2, SS, V_th = service.u_fe_computer(w, l)
 
+                log_operation(get_current_user(), 'auto_fitting', record,
+                              detail=f'w={w} l={l} V_th={V_th}')
                 response = {
                     'U_FE_1': [f'{val:.3e}' for val in U_FE_1] if U_FE_1 is not None else [],
                     'U_FE_2': [f'{val:.3e}' for val in U_FE_2] if U_FE_2 is not None else [],
@@ -617,7 +705,7 @@ def _register_analysis_routes(app):
             return handle_error('Internal server error', 500, str(e))
 
     @app.route('/api/simulation', methods=['POST'])
-    @jwt_required()
+    @active_required
     def simulation():
         data = request.get_json()
         if not data:
@@ -693,6 +781,9 @@ def _register_analysis_routes(app):
                         g_tail=g_tail, g_deep=g_deep,
                         T=T, data_params=data_params,
                     )
+                    log_operation(get_current_user(), 'simulation', record, detail=(
+                        f'type={"output" if type_sel == 0 else "transfer"} '
+                        f'w={w} l={l} rc={enable_rc} err={response["fitting_error_rate"]:.4f}'))
                     return jsonify(response)
                 finally:
                     # 无论成功或异常, 都将共享 Service 的拟合状态恢复干净

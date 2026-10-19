@@ -1,5 +1,6 @@
 import { Card, Form, Input, Button, Typography, App } from 'antd';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../stores/authStore';
 
@@ -10,6 +11,13 @@ export function LoginPage() {
   const { message } = App.useApp();
   const login = useAuthStore((s) => s.login);
   const [form] = Form.useForm();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('expired')) {
+      message.warning('账号已过期，请联系管理员续期');
+    }
+  }, [searchParams]);
 
   const onFinish = async (values: { username: string; password: string }) => {
     try {

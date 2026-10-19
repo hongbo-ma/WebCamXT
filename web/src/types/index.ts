@@ -5,6 +5,8 @@ export interface User {
   role: 'admin' | 'user';
   created_at?: string;
   file_count?: number;
+  expires_at?: string | null;
+  is_expired?: boolean;
 }
 
 export interface Combinations {
@@ -18,6 +20,25 @@ export interface FileRecord {
   file_size: number;
   uploaded_at: string;
   combinations: Combinations | null;
+  user_id?: number;
+  owner_username?: string | null;
+}
+
+export interface OperationLog {
+  id: number;
+  user_id: number;
+  username: string;
+  file_id: number | null;
+  file_name: string | null;
+  file_owner_name: string | null;
+  action: string;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface LogsResponse {
+  logs: OperationLog[];
+  total: number;
 }
 
 export interface DataParams {

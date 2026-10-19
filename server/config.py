@@ -38,3 +38,6 @@ class Config:
     CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 
     INVITE_DEFAULT_EXPIRE_DAYS = 7
+
+    # 新用户账号默认有效期 (天); 管理员可在用户管理中续期或设为永久
+    DEFAULT_USER_EXPIRE_DAYS = 30

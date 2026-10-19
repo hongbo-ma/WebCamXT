@@ -191,7 +191,7 @@ def test_admin_list_update_delete_user(client, admin_headers, sample_xlsx):
 
     # 删除用户后其 token 失效
     assert client.delete(f"/api/admin/users/{victim['id']}", headers=admin_headers).status_code == 200
-    assert client.get('/api/auth/me', headers=victim_headers).status_code == 404
+    assert client.get('/api/auth/me', headers=victim_headers).status_code == 401
 
 
 # ---------- 文件上传与隔离 ----------
@@ -349,3 +349,89 @@ def test_concurrent_simulation_state_isolation(app, client, admin_headers, sampl
 
     assert results[0.8] == base_a
     assert results[5.0] == base_b
+
+
+# ---------- 账号有效期 / 审计日志 ----------
+
+def test_register_default_expiry_30d(client, admin_headers):
+    _, username = create_invited_user(client, admin_headers)
+    # register/login 返回的 user dict 已包含 expires_at
+    resp = client.post('/api/auth/login', json={'username': username, 'password': PASSWORD})
+    body = resp.get_json()['user']
+    assert body['expires_at'] is not None
+    from datetime import datetime, timedelta
+    exp = datetime.fromisoformat(body['expires_at'])
+    assert timedelta(days=29) < (exp - datetime.utcnow()) <= timedelta(days=31)
+    assert body['is_expired'] is False
+
+
+def test_expired_user_blocked_then_renewed(app, client, admin_headers, sample_xlsx):
+    from datetime import timedelta
+    from models import utcnow, db as _db
+
+    headers, username = create_invited_user(client, admin_headers)
+    file_id, _ = upload_sample(client, headers, sample_xlsx)
+
+    # 手动把账号置为过期
+    with app.app_context():
+        user = User.query.filter_by(username=username).first()
+        user.expires_at = utcnow() - timedelta(days=1)
+        _db.session.commit()
+        uid = user.id
+
+    # 登录被拒 + 业务接口 403
+    assert client.post('/api/auth/login',
+                       json={'username': username, 'password': PASSWORD}).status_code == 403
+    assert client.get('/api/files', headers=headers).status_code == 403
+    assert client.post('/api/plot-data', headers=headers, json={
+        'file_id': file_id, 'w': W, 'l': L, 'type': 'output', 'v_value': 5.0}).status_code == 403
+
+    # 管理员续期 30 天后恢复
+    resp = client.patch(f'/api/admin/users/{uid}', headers=admin_headers,
+                        json={'extend_days': 30})
+    assert resp.status_code == 200
+    body = resp.get_json()['user']
+    assert body['is_expired'] is False
+    assert client.get('/api/files', headers=headers).status_code == 200
+
+    # 永久有效
+    resp = client.patch(f'/api/admin/users/{uid}', headers=admin_headers,
+                        json={'permanent': True})
+    assert resp.get_json()['user']['expires_at'] is None
+
+
+def test_admin_can_access_and_analyze_user_files(client, admin_headers, user_headers, sample_xlsx):
+    file_id, _ = upload_sample(client, user_headers, sample_xlsx)
+
+    # 管理员可读取用户文件详情与曲线 (代为分析)
+    assert client.get(f'/api/files/{file_id}', headers=admin_headers).status_code == 200
+    resp = client.post('/api/plot-data', headers=admin_headers, json={
+        'file_id': file_id, 'w': W, 'l': L, 'type': 'output', 'v_value': 5.0})
+    assert resp.status_code == 200
+
+    # 管理员文件列表包含所有用户文件及属主
+    resp = client.get('/api/files', headers=admin_headers)
+    files = resp.get_json()['files']
+    assert any(f['id'] == file_id and f['owner_username'] for f in files)
+
+
+def test_operation_logs_recorded(client, admin_headers, user_headers, sample_xlsx):
+    file_id, _ = upload_sample(client, user_headers, sample_xlsx)
+
+    client.post('/api/plot-data', headers=user_headers, json={
+        'file_id': file_id, 'w': W, 'l': L, 'type': 'output', 'v_value': 5.0})
+    client.delete(f'/api/files/{file_id}', headers=user_headers)
+
+    resp = client.get('/api/admin/logs?page=1&page_size=10', headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['total'] >= 3
+    actions = {log['action'] for log in body['logs']}
+    assert {'upload', 'plot', 'delete'} <= actions
+
+    # 按动作过滤
+    resp = client.get('/api/admin/logs?action=plot', headers=admin_headers)
+    assert all(log['action'] == 'plot' for log in resp.get_json()['logs'])
+
+    # 普通用户无权查看日志
+    assert client.get('/api/admin/logs', headers=user_headers).status_code == 403

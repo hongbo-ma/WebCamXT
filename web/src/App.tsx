@@ -8,6 +8,7 @@ import { FilesPage } from './pages/FilesPage';
 import { AnalysisPage } from './pages/AnalysisPage';
 import { InvitesPage } from './pages/admin/InvitesPage';
 import { UsersPage } from './pages/admin/UsersPage';
+import { LogsPage } from './pages/admin/LogsPage';
 
 function App() {
   return (
@@ -65,6 +66,14 @@ function App() {
                 element={
                   <AdminGuard>
                     <UsersPage />
+                  </AdminGuard>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <AdminGuard>
+                    <LogsPage />
                   </AdminGuard>
                 }
               />
