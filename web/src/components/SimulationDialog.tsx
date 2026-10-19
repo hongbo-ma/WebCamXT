@@ -2,6 +2,21 @@ import { Modal, Form, InputNumber, Switch, Row, Col, Divider, App, Button } from
 import { useState } from 'react';
 import type { DataParams } from '../types';
 
+/** 态密度数值较大 (1e18 量级), 输入框以指数形式显示, 如 5.1e18 */
+const sciFormatter = (value?: number | string): string => {
+  if (value === undefined || value === null || value === '') return '';
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^\d.eE+-]/g, ''));
+  if (!isFinite(n)) return String(value);
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  if (abs >= 1e5 || abs < 1e-3) {
+    return n.toExponential(3).replace(/\.?0+e/, 'e').replace('e+', 'e');
+  }
+  return String(n);
+};
+
+const sciParser = (display?: string): string => (display ?? '').replace(/[^\d.eE+-]/g, '');
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -60,8 +75,8 @@ export function SimulationDialog({ open, onClose, onSimulate }: Props) {
           <Col span={12}><Form.Item name="t_deep" label="T_deep(K)" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
         </Row>
         <Row>
-          <Col span={12}><Form.Item name="g_tail" label="g_tail" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} step={1e17} /></Form.Item></Col>
-          <Col span={12}><Form.Item name="g_deep" label="g_deep" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} step={1e17} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="g_tail" label="g_tail" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} step={1e17} formatter={sciFormatter} parser={sciParser} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="g_deep" label="g_deep" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} step={1e17} formatter={sciFormatter} parser={sciParser} /></Form.Item></Col>
         </Row>
         <Row>
           <Col span={12}><Form.Item name="T" label="T(K)" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} /></Form.Item></Col>

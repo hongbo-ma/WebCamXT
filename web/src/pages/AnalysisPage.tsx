@@ -134,7 +134,7 @@ export function AnalysisPage() {
               <Select size="small" style={{ width: '100%' }} value={store.selectedL ?? undefined} onChange={store.setL} options={store.lOptions.map((l) => ({ value: l, label: l.toFixed(6) }))} />
               <span className="param-label">Type:</span>
               <Select size="small" style={{ width: '100%' }} value={store.selectedType} onChange={store.setType} options={[{ value: 'output', label: 'output' }, { value: 'transfer', label: 'transfer' }]} />
-              <span className="param-label">Vgs:</span>
+              <span className="param-label">{store.selectedType === 'output' ? 'Vgs:' : 'Vds:'}</span>
               <Select size="small" style={{ width: '100%' }} value={store.selectedV ?? undefined} onChange={store.setV} options={store.vOptions.map((v) => ({ value: v, label: v.toFixed(3) }))} />
             </div>
           </div>
